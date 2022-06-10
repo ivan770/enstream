@@ -1,0 +1,13 @@
+[package]
+name = "enstream"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ivan Leshchenko <ivan@ivan770.me>"]
+license = "MIT OR Apache-2.0"
+description = "Conversion from Future to Stream"
+repository = "https://github.com/ivan770/enstream"
+
+[dependencies]
+futures-util = { version = "0.3.21", default-features = false }
+pin-project = "1.0.10"
+pinned-aliasable = "0.1.3"
