@@ -1,26 +1,21 @@
-#![feature(generic_associated_types)]
-
 use std::{
     future::{self, Future},
     panic,
     task::{self, Poll},
 };
 
+use enstream::{HandlerFn, HandlerFnLifetime};
 use futures_util::{stream::Stream, task::noop_waker_ref};
 
 struct Handler;
-impl<'scope> enstream::HandlerFn<'scope, Box<u32>> for Handler {
-    type Fut<'yielder> = future::Ready<()>
-    where
-        'scope: 'yielder;
-
-    fn call<'yielder>(
+impl HandlerFnLifetime<'_, Box<u32>> for Handler {
+    type Fut = future::Ready<()>;
+}
+impl HandlerFn<Box<u32>> for Handler {
+    fn call(
         self,
-        mut yielder: enstream::Yielder<'yielder, Box<u32>>,
-    ) -> Self::Fut<'yielder>
-    where
-        'scope: 'yielder,
-    {
+        mut yielder: enstream::Yielder<'_, Box<u32>>,
+    ) -> <Self as HandlerFnLifetime<'_, Box<u32>>>::Fut {
         let mut cx = task::Context::from_waker(noop_waker_ref());
 
         let mut first = Box::pin(yielder.yield_item(Box::new(0)));

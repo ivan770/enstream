@@ -7,26 +7,29 @@ Crate is fully compatible with `#![no_std]`.
 ## Example usage
 
 ```rust
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 use std::future::Future;
 
-use enstream::{HandlerFn, Yielder, enstream};
+use enstream::{HandlerFn, HandlerFnLifetime, Yielder, enstream};
 use futures_util::{future::FutureExt, pin_mut, stream::StreamExt};
 
 struct StreamState<'a> {
     val: &'a str
 }
 
-impl<'a> HandlerFn<'a, &'a str> for StreamState<'a> {
-    type Fut<'yielder> = impl Future<Output = ()> + 'yielder
-    where
-        'a: 'yielder;
+// A separate type alias is used to work around TAIT bugs
+type Fut<'yielder, 'a: 'yielder> = impl Future<Output = ()>;
 
-    fn call<'yielder>(self, mut yielder: Yielder<'yielder, &'a str>) -> Self::Fut<'yielder>
-    where
-        'a: 'yielder
-    {
+impl<'yielder, 'a> HandlerFnLifetime<'yielder, &'a str> for StreamState<'a> {
+    type Fut = Fut<'yielder, 'a>;
+}
+
+impl<'a> HandlerFn<&'a str> for StreamState<'a> {
+    fn call<'yielder>(
+        self,
+        mut yielder: Yielder<'yielder, &'a str>,
+    ) -> <Self as HandlerFnLifetime<'yielder, &'a str>>::Fut {
         async move {
             yielder.yield_item(self.val).await;
         }
