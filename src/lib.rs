@@ -52,7 +52,6 @@ use core::{
     future::Future,
     hint::unreachable_unchecked,
     marker::PhantomData,
-    mem::MaybeUninit,
     pin::Pin,
     ptr::NonNull,
     task::{Context, Poll},
@@ -124,9 +123,12 @@ unsafe impl<'a, T: Send> Send for Yielder<'a, T> {}
 // we can make Yielder Sync even if T is not Sync.
 unsafe impl<'a, T: Send> Sync for Yielder<'a, T> {}
 
-#[pin_project(project = EnstreamStateProj)]
+#[pin_project(
+    project = EnstreamStateProj,
+    project_replace = EnstreamStateProjReplace,
+)]
 enum EnstreamState<G, F> {
-    Gen(MaybeUninit<G>),
+    Gen(G),
     Fut(#[pin] F),
     Completed,
 }
@@ -155,17 +157,19 @@ where
 
         let poll_result = match this.state.as_mut().project() {
             EnstreamStateProj::Fut(fut) => fut.poll(cx),
-            EnstreamStateProj::Gen(gen) => {
-                // Safety: EnstreamState::Gen is always initialized with
-                // valid future generator instance, that is read only
-                // once, since after the initial read we replace EnstreamState::Gen
-                // with EnstreamState::Fut or EnstreamState::Completed.
-                let gen = unsafe { gen.assume_init_read() };
-
+            EnstreamStateProj::Gen(..) => {
                 // Since the generator is provided by user,
                 // we have to protect ourselves from a panic
                 // while the future is being initialized.
-                this.state.set(EnstreamState::Completed);
+                let gen = match this
+                    .state
+                    .as_mut()
+                    .project_replace(EnstreamState::Completed)
+                {
+                    EnstreamStateProjReplace::Gen(gen) => gen,
+                    // Safety: EnstreamState was checked as Gen above
+                    _ => unsafe { unreachable_unchecked() },
+                };
 
                 let fut = gen.call(Yielder(cell_pointer, PhantomData));
                 this.state.set(EnstreamState::Fut(fut));
@@ -224,6 +228,6 @@ where
 {
     Enstream {
         cell: Aliasable::new(UnsafeCell::new(None)),
-        state: EnstreamState::Gen(MaybeUninit::new(generator)),
+        state: EnstreamState::Gen(generator),
     }
 }
