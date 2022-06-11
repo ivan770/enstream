@@ -1,8 +1,8 @@
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 use std::{future::Future, task, task::Poll};
 
-use enstream::{enstream, Yielder};
+use enstream::{enstream, HandlerFn, HandlerFnLifetime, Yielder};
 use futures_util::{stream::Stream, task::noop_waker_ref};
 
 struct YieldsInDrop<'stream> {
@@ -18,15 +18,15 @@ impl<'stream> Drop for YieldsInDrop<'stream> {
 }
 
 struct Handler;
-impl<'scope> enstream::HandlerFn<'scope, Box<u32>> for Handler {
-    type Fut<'yielder> = impl Future<Output = ()> + 'yielder
-        where
-            'scope: 'yielder;
-
-    fn call<'yielder>(self, yielder: Yielder<'yielder, Box<u32>>) -> Self::Fut<'yielder>
-    where
-        'scope: 'yielder,
-    {
+type Fut<'yielder> = impl Future<Output = ()>;
+impl<'yielder> HandlerFnLifetime<'yielder, Box<u32>> for Handler {
+    type Fut = Fut<'yielder>;
+}
+impl HandlerFn<Box<u32>> for Handler {
+    fn call(
+        self,
+        yielder: Yielder<'_, Box<u32>>,
+    ) -> <Self as HandlerFnLifetime<'_, Box<u32>>>::Fut {
         async {
             let _yields_in_drop = YieldsInDrop { yielder };
             std::future::pending().await
