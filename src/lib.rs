@@ -93,20 +93,22 @@ pub struct Yielder<'a, T>(NonNull<Option<T>>, PhantomData<&'a mut T>);
 impl<'a, T> Yielder<'a, T> {
     /// Yield an item to stream.
     ///
-    /// Each call to [`yield_item`] overrides the previous value
-    /// yielded to stream.
+    /// # Panics
     ///
-    /// To ensure that the previous value is not overriden,
-    /// you have to `await` the future returned by [`yield_item`].
-    ///
-    /// [`yield_item`]: Yielder::yield_item
+    /// Panics if an item has already been yielded in this polling of the stream future. This is
+    /// hard to trigger unless you're intentionally misuing the API by calling `poll` functions
+    /// manually.
     pub async fn yield_item(&mut self, val: T) {
         // Safety:
         //
         // Validity of internal NonNull pointer
         // is constrained by the lifetime of PhantomData,
         // which is defined by the lifetime of a Enstream struct.
-        unsafe { self.0.as_ptr().write(Some(val)) }
+        let slot = unsafe { self.0.as_mut() };
+
+        assert!(slot.is_none(), "called `yield_item` twice in one poll");
+
+        *slot = Some(val);
 
         YieldNow::Created.await;
     }
