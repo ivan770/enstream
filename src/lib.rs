@@ -14,10 +14,8 @@
 //!     val: &'a str
 //! }
 //!
-//! type StreamStateFut<'yielder> = impl Future<Output = ()> + 'yielder;
-//!
 //! impl<'a> HandlerFn<'a, &'a str> for StreamState<'a> {
-//!     type Fut<'yielder> = StreamStateFut<'yielder>
+//!     type Fut<'yielder> = impl Future<Output = ()> + 'yielder
 //!     where
 //!         'a: 'yielder;
 //!
@@ -41,6 +39,8 @@
 //!
 //! assert_eq!(stream.next().now_or_never().flatten(), Some("test"));
 //! ```
+//!
+//! [`Stream`]: futures_util::stream::Stream
 
 #![no_std]
 #![feature(generic_associated_types)]
@@ -48,7 +48,7 @@
 mod yield_now;
 
 use core::{
-    cell::{Cell, UnsafeCell},
+    cell::UnsafeCell,
     future::Future,
     hint::unreachable_unchecked,
     marker::PhantomData,
@@ -64,6 +64,8 @@ use pinned_aliasable::Aliasable;
 use yield_now::YieldNow;
 
 /// [`Future`] generator that can be converted to [`Stream`].
+///
+/// [`Stream`]: futures_util::stream::Stream
 pub trait HandlerFn<'scope, T: 'scope> {
     type Fut<'yielder>: Future<Output = ()> + 'yielder
     where
@@ -76,13 +78,17 @@ pub trait HandlerFn<'scope, T: 'scope> {
     ///
     /// However, for those cases [`HandlerFn`] provides you with `'scope` lifetime,
     /// which is required to outlive `'yielder`.
+    ///
+    /// [`Stream`]: futures_util::stream::Stream
     fn call<'yielder>(self, yielder: Yielder<'yielder, T>) -> Self::Fut<'yielder>
     where
         'scope: 'yielder;
 }
 
 /// [`Stream`] item yielder.
-pub struct Yielder<'a, T>(NonNull<Option<T>>, PhantomData<Cell<&'a ()>>);
+///
+/// [`Stream`]: futures_util::stream::Stream
+pub struct Yielder<'a, T>(NonNull<Option<T>>, PhantomData<&'a mut T>);
 
 impl<'a, T> Yielder<'a, T> {
     /// Yield an item to stream.
@@ -197,6 +203,8 @@ where
 }
 
 /// Create new [`Stream`] from the provided [`HandlerFn`].
+///
+/// [`Stream`]: futures_util::stream::Stream
 pub fn enstream<'scope, T: 'scope, G: 'scope>(generator: G) -> impl FusedStream<Item = T> + 'scope
 where
     G: HandlerFn<'scope, T>,

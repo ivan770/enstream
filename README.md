@@ -18,10 +18,8 @@ struct StreamState<'a> {
     val: &'a str
 }
 
-type StreamStateFut<'yielder> = impl Future<Output = ()> + 'yielder;
-
 impl<'a> HandlerFn<'a, &'a str> for StreamState<'a> {
-    type Fut<'yielder> = StreamStateFut<'yielder>
+    type Fut<'yielder> = impl Future<Output = ()> + 'yielder
     where
         'a: 'yielder;
 
