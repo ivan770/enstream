@@ -3,26 +3,29 @@
 //! # Example
 //!
 //! ```
-//! #![feature(generic_associated_types, type_alias_impl_trait)]
+//! #![feature(type_alias_impl_trait)]
 //!
 //! use std::future::Future;
 //!
-//! use enstream::{HandlerFn, Yielder, enstream};
+//! use enstream::{HandlerFn, HandlerFnLifetime, Yielder, enstream};
 //! use futures_util::{future::FutureExt, pin_mut, stream::StreamExt};
 //!
 //! struct StreamState<'a> {
 //!     val: &'a str
 //! }
 //!
-//! impl<'a> HandlerFn<'a, &'a str> for StreamState<'a> {
-//!     type Fut<'yielder> = impl Future<Output = ()> + 'yielder
-//!     where
-//!         'a: 'yielder;
+//! // A separate type alias is used to work around TAIT bugs
+//! type Fut<'yielder, 'a: 'yielder> = impl Future<Output = ()>;
 //!
-//!     fn call<'yielder>(self, mut yielder: Yielder<'yielder, &'a str>) -> Self::Fut<'yielder>
-//!     where
-//!         'a: 'yielder
-//!     {
+//! impl<'yielder, 'a> HandlerFnLifetime<'yielder, &'a str> for StreamState<'a> {
+//!     type Fut = Fut<'yielder, 'a>;
+//! }
+//!
+//! impl<'a> HandlerFn<&'a str> for StreamState<'a> {
+//!     fn call<'yielder>(
+//!         self,
+//!         mut yielder: Yielder<'yielder, &'a str>,
+//!     ) -> <Self as HandlerFnLifetime<'yielder, &'a str>>::Fut {
 //!         async move {
 //!             yielder.yield_item(self.val).await;
 //!         }
@@ -43,7 +46,6 @@
 //! [`Stream`]: futures_core::stream::Stream
 
 #![no_std]
-#![feature(generic_associated_types)]
 
 mod yield_now;
 
@@ -62,22 +64,18 @@ use pin_project_lite::pin_project;
 use pinned_aliasable::Aliasable;
 use yield_now::YieldNow;
 
-/// [`Future`] generator that can be converted to [`Stream`].
-pub trait HandlerFn<'scope, T: 'scope> {
-    type Fut<'yielder>: Future<Output = ()> + 'yielder
-    where
-        'scope: 'yielder;
+/// Associated types of a [`HandlerFn`] with the specific lifetime of the yielder applied.
+///
+/// This must be implemented for any lifetime `'yielder` in order to implement [`HandlerFn`].
+pub trait HandlerFnLifetime<'yielder, T, ImplicitBounds: Sealed = Bounds<Yielder<'yielder, T>>> {
+    /// The future type, as returned by [`HandlerFn::call`].
+    type Fut: Future<Output = ()>;
+}
 
+/// [`Future`] generator that can be converted to [`Stream`].
+pub trait HandlerFn<T>: for<'yielder> HandlerFnLifetime<'yielder, T> {
     /// Create new [`Future`] with the provided [`Yielder`] as a [`Stream`] item source.
-    ///
-    /// `'yielder` lifetime is defined inside of library internals,
-    /// thus you are not allowed to use it to access outer scope elements.
-    ///
-    /// However, for those cases [`HandlerFn`] provides you with `'scope` lifetime,
-    /// which is required to outlive `'yielder`.
-    fn call<'yielder>(self, yielder: Yielder<'yielder, T>) -> Self::Fut<'yielder>
-    where
-        'scope: 'yielder;
+    fn call(self, yielder: Yielder<'_, T>) -> <Self as HandlerFnLifetime<'_, T>>::Fut;
 }
 
 /// [`Stream`] item yielder.
@@ -138,10 +136,9 @@ pin_project! {
     }
 }
 
-impl<'yielder, 'scope: 'yielder, T: 'scope, G: 'scope> Stream
-    for Enstream<T, G, <G as HandlerFn<'scope, T>>::Fut<'yielder>>
+impl<'yielder, T, G> Stream for Enstream<T, G, <G as HandlerFnLifetime<'yielder, T>>::Fut>
 where
-    G: HandlerFn<'scope, T>,
+    G: HandlerFn<T>,
 {
     type Item = T;
 
@@ -192,10 +189,9 @@ where
     }
 }
 
-impl<'yielder, 'scope: 'yielder, T: 'scope, G: 'scope> FusedStream
-    for Enstream<T, G, <G as HandlerFn<'scope, T>>::Fut<'yielder>>
+impl<'yielder, T, G> FusedStream for Enstream<T, G, <G as HandlerFnLifetime<'yielder, T>>::Fut>
 where
-    G: HandlerFn<'scope, T>,
+    G: HandlerFn<T>,
 {
     fn is_terminated(&self) -> bool {
         matches!(self.state, EnstreamState::Completed)
@@ -213,12 +209,19 @@ unsafe impl<T: Send, G: Send, F: Send> Send for Enstream<T, G, F> {}
 unsafe impl<T, G, F> Sync for Enstream<T, G, F> {}
 
 /// Create new [`Stream`] from the provided [`HandlerFn`].
-pub fn enstream<'scope, T: 'scope, G: 'scope>(gen: G) -> impl FusedStream<Item = T> + 'scope
+pub fn enstream<T, G>(gen: G) -> impl FusedStream<Item = T>
 where
-    G: HandlerFn<'scope, T>,
+    G: HandlerFn<T>,
 {
     Enstream {
         cell: Aliasable::new(UnsafeCell::new(None)),
         state: EnstreamState::Gen { gen },
     }
 }
+
+mod private {
+    pub trait Sealed {}
+    pub struct Bounds<T>(T);
+    impl<T> Sealed for Bounds<T> {}
+}
+use private::{Bounds, Sealed};
