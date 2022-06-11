@@ -202,6 +202,19 @@ where
     }
 }
 
+// Safety:
+//
+// Same as with Yielder, Enstream doesn't have any special thread-based semantics,
+// thus it's safe to send it to another thread.
+unsafe impl<T: Send, G: Send, F: Send> Send for Enstream<T, G, F> {}
+
+// Safety:
+//
+// Enstream does not provide any way to access T, G or F via
+// shared reference, thus it's safe to implement Sync for Enstream
+// even if T, G or F don't implement it.
+unsafe impl<T: Send, G: Send, F: Send> Sync for Enstream<T, G, F> {}
+
 /// Create new [`Stream`] from the provided [`HandlerFn`].
 ///
 /// [`Stream`]: futures_util::stream::Stream
