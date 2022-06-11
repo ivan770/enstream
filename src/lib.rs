@@ -40,7 +40,7 @@
 //! assert_eq!(stream.next().now_or_never().flatten(), Some("test"));
 //! ```
 //!
-//! [`Stream`]: futures_util::stream::Stream
+//! [`Stream`]: futures_core::stream::Stream
 
 #![no_std]
 #![feature(generic_associated_types)]
@@ -57,14 +57,12 @@ use core::{
     task::{Context, Poll},
 };
 
-use futures_util::stream::{FusedStream, Stream};
+use futures_core::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use pinned_aliasable::Aliasable;
 use yield_now::YieldNow;
 
 /// [`Future`] generator that can be converted to [`Stream`].
-///
-/// [`Stream`]: futures_util::stream::Stream
 pub trait HandlerFn<'scope, T: 'scope> {
     type Fut<'yielder>: Future<Output = ()> + 'yielder
     where
@@ -77,16 +75,12 @@ pub trait HandlerFn<'scope, T: 'scope> {
     ///
     /// However, for those cases [`HandlerFn`] provides you with `'scope` lifetime,
     /// which is required to outlive `'yielder`.
-    ///
-    /// [`Stream`]: futures_util::stream::Stream
     fn call<'yielder>(self, yielder: Yielder<'yielder, T>) -> Self::Fut<'yielder>
     where
         'scope: 'yielder;
 }
 
 /// [`Stream`] item yielder.
-///
-/// [`Stream`]: futures_util::stream::Stream
 pub struct Yielder<'a, T>(NonNull<Option<T>>, PhantomData<&'a mut T>);
 
 impl<'a, T> Yielder<'a, T> {
@@ -222,8 +216,6 @@ unsafe impl<T: Send, G: Send, F: Send> Send for Enstream<T, G, F> {}
 unsafe impl<T: Send, G: Send, F: Send> Sync for Enstream<T, G, F> {}
 
 /// Create new [`Stream`] from the provided [`HandlerFn`].
-///
-/// [`Stream`]: futures_util::stream::Stream
 pub fn enstream<'scope, T: 'scope, G: 'scope>(generator: G) -> impl FusedStream<Item = T> + 'scope
 where
     G: HandlerFn<'scope, T>,
