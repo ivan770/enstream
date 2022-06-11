@@ -118,11 +118,8 @@ impl<'a, T> Yielder<'a, T> {
 // so it's safe to Send it to another thread as long as you can Send T.
 unsafe impl<'a, T: Send> Send for Yielder<'a, T> {}
 
-// Safety:
-//
-// Since we don't provide any access to T
-// we can make Yielder Sync even if T is not Sync.
-unsafe impl<'a, T: Send> Sync for Yielder<'a, T> {}
+// Safety: You can do nothing with an `&Yielder<'a, T>`.
+unsafe impl<'a, T> Sync for Yielder<'a, T> {}
 
 #[pin_project(project = EnstreamStateProj)]
 enum EnstreamState<G, F> {
@@ -208,12 +205,9 @@ where
 // thus it's safe to send it to another thread.
 unsafe impl<T: Send, G: Send, F: Send> Send for Enstream<T, G, F> {}
 
-// Safety:
-//
-// Enstream does not provide any way to access T, G or F via
-// shared reference, thus it's safe to implement Sync for Enstream
-// even if T, G or F don't implement it.
-unsafe impl<T: Send, G: Send, F: Send> Sync for Enstream<T, G, F> {}
+// Safety: The only thing that an `&Enstream` allows is calling `is_terminated`, but that does not
+// access any of `T`, `G` or `F`.
+unsafe impl<T, G, F> Sync for Enstream<T, G, F> {}
 
 /// Create new [`Stream`] from the provided [`HandlerFn`].
 ///
