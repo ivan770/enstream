@@ -58,7 +58,7 @@ use core::{
 };
 
 use futures_core::stream::{FusedStream, Stream};
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use pinned_aliasable::Aliasable;
 use yield_now::YieldNow;
 
@@ -116,25 +116,26 @@ unsafe impl<'a, T: Send> Send for Yielder<'a, T> {}
 // Safety: You can do nothing with an `&Yielder<'a, T>`.
 unsafe impl<'a, T> Sync for Yielder<'a, T> {}
 
-#[pin_project(
-    project = EnstreamStateProj,
-    project_replace = EnstreamStateProjReplace,
-)]
-enum EnstreamState<G, F> {
-    Gen(G),
-    Fut(#[pin] F),
-    Completed,
+pin_project! {
+    #[project = EnstreamStateProj]
+    #[project_replace = EnstreamStateProjReplace]
+    enum EnstreamState<G, F> {
+        Gen { gen: G },
+        Fut { #[pin] fut: F },
+        Completed,
+    }
 }
 
-#[pin_project]
-struct Enstream<T, G, F> {
-    // This field must come before `cell` so that it is dropped before `cell`, to prevent the
-    // future ending up with a dangling reference.
-    #[pin]
-    state: EnstreamState<G, F>,
+pin_project! {
+    struct Enstream<T, G, F> {
+        // This field must come before `cell` so that it is dropped before `cell`, to prevent the
+        // future ending up with a dangling reference.
+        #[pin]
+        state: EnstreamState<G, F>,
 
-    #[pin]
-    cell: Aliasable<UnsafeCell<Option<T>>>,
+        #[pin]
+        cell: Aliasable<UnsafeCell<Option<T>>>,
+    }
 }
 
 impl<'yielder, 'scope: 'yielder, T: 'scope, G: 'scope> Stream
@@ -151,8 +152,8 @@ where
         let mut cell_pointer = unsafe { NonNull::new_unchecked(this.cell.as_ref().get().get()) };
 
         let poll_result = match this.state.as_mut().project() {
-            EnstreamStateProj::Fut(fut) => fut.poll(cx),
-            EnstreamStateProj::Gen(..) => {
+            EnstreamStateProj::Fut { fut } => fut.poll(cx),
+            EnstreamStateProj::Gen { .. } => {
                 // Since the generator is provided by user,
                 // we have to protect ourselves from a panic
                 // while the future is being initialized.
@@ -161,16 +162,16 @@ where
                     .as_mut()
                     .project_replace(EnstreamState::Completed)
                 {
-                    EnstreamStateProjReplace::Gen(gen) => gen,
+                    EnstreamStateProjReplace::Gen { gen } => gen,
                     // Safety: EnstreamState was checked as Gen above
                     _ => unsafe { unreachable_unchecked() },
                 };
 
                 let fut = gen.call(Yielder(cell_pointer, PhantomData));
-                this.state.set(EnstreamState::Fut(fut));
+                this.state.set(EnstreamState::Fut { fut });
 
                 match this.state.as_mut().project() {
-                    EnstreamStateProj::Fut(fut) => fut.poll(cx),
+                    EnstreamStateProj::Fut { fut } => fut.poll(cx),
                     // Safety: EnstreamState was set to Fut above.
                     _ => unsafe { unreachable_unchecked() },
                 }
@@ -212,12 +213,12 @@ unsafe impl<T: Send, G: Send, F: Send> Send for Enstream<T, G, F> {}
 unsafe impl<T, G, F> Sync for Enstream<T, G, F> {}
 
 /// Create new [`Stream`] from the provided [`HandlerFn`].
-pub fn enstream<'scope, T: 'scope, G: 'scope>(generator: G) -> impl FusedStream<Item = T> + 'scope
+pub fn enstream<'scope, T: 'scope, G: 'scope>(gen: G) -> impl FusedStream<Item = T> + 'scope
 where
     G: HandlerFn<'scope, T>,
 {
     Enstream {
         cell: Aliasable::new(UnsafeCell::new(None)),
-        state: EnstreamState::Gen(generator),
+        state: EnstreamState::Gen { gen },
     }
 }

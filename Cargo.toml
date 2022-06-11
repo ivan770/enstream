@@ -9,7 +9,7 @@ repository = "https://github.com/ivan770/enstream"
 
 [dependencies]
 futures-core = { version = "0.3.21", default-features = false }
-pin-project = "1.0.10"
+pin-project-lite = "0.2.9"
 pinned-aliasable = "0.1.3"
 
 [dev-dependencies]
