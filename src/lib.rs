@@ -135,11 +135,13 @@ enum EnstreamState<G, F> {
 
 #[pin_project]
 struct Enstream<T, G, F> {
-    #[pin]
-    cell: Aliasable<UnsafeCell<Option<T>>>,
-
+    // This field must come before `cell` so that it is dropped before `cell`, to prevent the
+    // future ending up with a dangling reference.
     #[pin]
     state: EnstreamState<G, F>,
+
+    #[pin]
+    cell: Aliasable<UnsafeCell<Option<T>>>,
 }
 
 impl<'yielder, 'scope: 'yielder, T: 'scope, G: 'scope> Stream
